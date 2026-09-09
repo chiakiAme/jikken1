@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>簿記仕訳マスター (Bookkeeping App)</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #1e293b;
+    --border: #cbd5e1;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 16px;
+  }
+  .container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: var(--card);
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+  }
+  h1 { font-size: 1.25rem; text-align: center; color: var(--primary); margin: 0 0 12px 0; }
+  
+  details {
+    background: #f1f5f9;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 0.9rem;
+    border: 1px solid var(--border);
+  }
+  summary {
+    font-weight: bold;
+    cursor: pointer;
+    color: #475569;
+  }
+  textarea {
+    width: 100%;
+    height: 100px;
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    box-sizing: border-box;
+    font-family: monospace;
+  }
+  .load-btn {
+    margin-top: 6px;
+    padding: 8px;
+    font-size: 0.85rem;
+    background: #475569;
+  }
+
+  .progress { font-size: 0.9rem; text-align: right; color: #64748b; margin-bottom: 8px; font-weight: 500; }
+  .story-card {
+    background: #f8fafc;
+    padding: 16px;
+    border-radius: 12px;
+    border-left: 5px solid var(--primary);
+    margin-bottom: 20px;
+    line-height: 1.6;
+    font-size: 0.95rem;
+    border-top: 1px solid #e2e8f0;
+    border-right: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .entry-box {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .entry-side {
+    flex: 1;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .side-title {
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+    color: #475569;
+  }
+  select, input {
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+  }
+  button {
+    width: 100%;
+    padding: 14px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button:active { opacity: 0.8; }
+  .result {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 8px;
+    display: none;
+  }
+  .result.correct { background: #dcfce7; color: var(--success); border: 1px solid #86efac; }
+  .result.incorrect { background: #fee2e2; color: var(--danger); border: 1px solid #fca5a5; }
+  .explanation {
+    margin-top: 8px;
+    color: var(--text);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .nav-btn {
+    margin-top: 12px;
+    background: #334155;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>簿記3級 仕訳ドリル (Bookkeeping Practice)</h1>
+
+  <details>
+    <summary>⚙️ 新しいストーリー問題を読み込む (JSON)</summary>
+    <textarea id="jsonInput" placeholder="AIが作成したJSONデータ（[ ... ]）をここに貼り付けます"></textarea>
+    <button class="load-btn" onclick="importCustomQuiz()">問題を反映する (Load Quiz)</button>
+  </details>
+
+  <div class="progress" id="progress">第 1 問 / 全 10 問</div>
+
+  <div class="story-card" id="questionText">問題文を読み込み中...</div>
+
+  <div class="entry-box">
+    <div class="entry-side">
+      <div class="side-title">借方 (Debit)</div>
+      <select id="debitAccount"></select>
+      <input type="number" id="debitAmount" placeholder="金額 (Amount)">
+    </div>
+    <div class="entry-side">
+      <div class="side-title">貸方 (Credit)</div>
+      <select id="creditAccount"></select>
+      <input type="number" id="creditAmount" placeholder="金額 (Amount)">
+    </div>
+  </div>
+
+  <button id="submitBtn" onclick="checkAnswer()">解答する (Submit)</button>
+
+  <div class="result" id="resultBox">
+    <div id="resultText" style="font-weight:bold;"></div>
+    <div class="explanation" id="explanationText"></div>
+    <button class="nav-btn" id="nextBtn" onclick="nextQuestion()">次の問題へ (Next)</button>
+  </div>
+</div>
+
+<script>
+// 1. ベースとなる基本勘定科目リスト
+const BASE_ACCOUNTS = [
+  "現金", "当座預金", "普通預金", "売掛金", "買掛金",
+  "商品", "備品", "売上", "仕入", "受取手数料", "支払家賃", "資本金"
+];
+
+// 動的に拡張される勘定科目リスト
+let currentAccounts = [...BASE_ACCOUNTS];
+
+// 2. 初期デフォルト問題（ドラゴンボール・現金編）
+const DEFAULT_QUIZ = [
+  {
+    "story": "【カメハウス 1】亀仙人は、修行用の甲羅や道着（仕入）5,000円分を購入し、代金を現金で支払った。",
+    "debit": { "account": "仕入", "amount": 5000 },
+    "credit": { "account": "現金", "amount": 5000 },
+    "explanation": "費用（Expense）である「仕入」が増加（借方）、資産（Asset）である「現金」が減少（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 2】悟空とクリリンが牛乳配達のアルバイトをして、報酬として現金 3,000円を受け取った（受取手数料）。",
+    "debit": { "account": "現金", "amount": 3000 },
+    "credit": { "account": "受取手数料", "amount": 3000 },
+    "explanation": "資産（Asset）である「現金」が増加（借方）、収益（Revenue）である「受取手数料」が増加（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 3】ブルマから特製カプセル（備品）20,000円を現金で購入した。",
+    "debit": { "account": "備品", "amount": 20000 },
+    "credit": { "account": "現金", "amount": 20000 },
+    "explanation": "資産（Asset）である「備品」が増加（借方）、資産の「現金」が減少（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 4】カメハウスの敷地代（支払家賃）10,000円を現金で支払った。",
+    "debit": { "account": "支払家賃", "amount": 10000 },
+    "credit": { "account": "現金", "amount": 10000 },
+    "explanation": "費用（Expense）である「支払家賃」が増加（借方）、資産の「現金」が減少（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 5】ヤムチャに貸していた掛け代金（売掛金）8,000円が、現金で回収された。",
+    "debit": { "account": "現金", "amount": 8000 },
+    "credit": { "account": "売掛金", "amount": 8000 },
+    "explanation": "資産（Asset）である「現金」が増加（借方）、資産である「売掛金」が減少（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 6】武道寺への道場使用料のツケ（買掛金）4,000円を現金で支払った。",
+    "debit": { "account": "買掛金", "amount": 4000 },
+    "credit": { "account": "現金", "amount": 4000 },
+    "explanation": "負債（Liability）である「買掛金」が減少（借方）、資産である「現金」が減少（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 7】手持ちの現金 15,000円を、安全のために普通預金口座へ預け入れた。",
+    "debit": { "account": "普通預金", "amount": 15000 },
+    "credit": { "account": "現金", "amount": 15000 },
+    "explanation": "資産（Asset）である「普通預金」が増加（借方）、同じく資産である「現金」が減少（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 8】修行用の食材を現金 2,000円で仕入れた。",
+    "debit": { "account": "仕入", "amount": 2000 },
+    "credit": { "account": "現金", "amount": 2000 },
+    "explanation": "費用（Expense）の「仕入」が増加（借方）、資産の「現金」が減少（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 9】亀仙流の記念Tシャツ（商品）をファンに 6,000円で売り上げ、代金は現金で受け取った。",
+    "debit": { "account": "現金", "amount": 6000 },
+    "credit": { "account": "売上", "amount": 6000 },
+    "explanation": "資産（Asset）の「現金」が増加（借方）、収益（Revenue）の「売上」が増加（貸方）します。"
+  },
+  {
+    "story": "【カメハウス 10】道場を開設するため、亀仙人が個人資金 50,000円を現金で出資した（元入れ）。",
+    "debit": { "account": "現金", "amount": 50000 },
+    "credit": { "account": "資本金", "amount": 50000 },
+    "explanation": "資産（Asset）の「現金」が増加（借方）、純資産（Net Assets）である「資本金」が増加（貸方）します。"
+  }
+];
+
+let activeQuiz = DEFAULT_QUIZ;
+let currentIndex = 0;
+
+// 3. ドロップダウンの選択肢を動的に再生成する関数
+function updateAccountDropdowns() {
+  const debitSelect = document.getElementById("debitAccount");
+  const creditSelect = document.getElementById("creditAccount");
+
+  // 現在の選択状態を保持（リセット時に消えないように）
+  const prevDebVal = debitSelect.value;
+  const prevCrdVal = creditSelect.value;
+
+  debitSelect.innerHTML = '<option value="">選択してください</option>';
+  creditSelect.innerHTML = '<option value="">選択してください</option>';
+
+  currentAccounts.forEach(title => {
+    const opt1 = document.createElement("option");
+    opt1.value = title;
+    opt1.textContent = title;
+    debitSelect.appendChild(opt1);
+
+    const opt2 = document.createElement("option");
+    opt2.value = title;
+    opt2.textContent = title;
+    creditSelect.appendChild(opt2);
+  });
+
+  debitSelect.value = prevDebVal;
+  creditSelect.value = prevCrdVal;
+}
+
+// 4. クイズ配列から勘定科目をスキャンして自動登録する関数
+function syncAccountsFromQuiz(quizArray) {
+  const accountSet = new Set(BASE_ACCOUNTS);
+
+  quizArray.forEach(q => {
+    if (q.debit && q.debit.account) accountSet.add(q.debit.account);
+    if (q.credit && q.credit.account) accountSet.add(q.credit.account);
+  });
+
+  currentAccounts = Array.from(accountSet);
+  updateAccountDropdowns();
+}
+
+// 5. アプリ初期化
+function initApp() {
+  // 保存されたカスタム問題があれば読み込み
+  const savedData = localStorage.getItem("custom_bookkeeping_quiz");
+  if (savedData) {
+    try {
+      activeQuiz = JSON.parse(savedData);
+    } catch (e) {
+      activeQuiz = DEFAULT_QUIZ;
+    }
+  }
+
+  // 科目を同期・ドロップダウン構築
+  syncAccountsFromQuiz(activeQuiz);
+  loadQuestion(0);
+}
+
+// 6. 問題読み込み関数（JSON反映）
+function importCustomQuiz() {
+  const input = document.getElementById("jsonInput").value.trim();
+  if (!input) {
+    alert("JSONデータを貼り付けてください。");
+    return;
+  }
+  try {
+    const parsed = JSON.parse(input);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error("配列形式ではありません。");
+    }
+    activeQuiz = parsed;
+    localStorage.setItem("custom_bookkeeping_quiz", JSON.stringify(parsed));
+    
+    // 新しい問題から新しい科目を自動抽出して更新
+    syncAccountsFromQuiz(activeQuiz);
+
+    currentIndex = 0;
+    loadQuestion(currentIndex);
+    alert(`新しい問題（全${activeQuiz.length}問）を読み込みました！勘定科目リストも自動更新されました。`);
+  } catch (err) {
+    alert("データの形式に誤りがあります。JSONフォーマットを確認してください。");
+  }
+}
+
+// 7. 問題表示
+function loadQuestion(index) {
+  const q = activeQuiz[index];
+  document.getElementById("progress").textContent = `第 ${index + 1} 問 / 全 ${activeQuiz.length} 問`;
+  document.getElementById("questionText").textContent = q.story;
+  
+  // 入力欄リセット
+  document.getElementById("debitAccount").value = "";
+  document.getElementById("debitAmount").value = "";
+  document.getElementById("creditAccount").value = "";
+  document.getElementById("creditAmount").value = "";
+  
+  document.getElementById("resultBox").style.display = "none";
+  document.getElementById("submitBtn").style.display = "block";
+}
+
+// 8. 判定処理
+function checkAnswer() {
+  const q = activeQuiz[currentIndex];
+  const userDebAcc = document.getElementById("debitAccount").value;
+  const userDebAmt = parseInt(document.getElementById("debitAmount").value, 10);
+  const userCrdAcc = document.getElementById("creditAccount").value;
+  const userCrdAmt = parseInt(document.getElementById("creditAmount").value, 10);
+
+  const isCorrect = (userDebAcc === q.debit.account && userDebAmt === q.debit.amount &&
+                     userCrdAcc === q.credit.account && userCrdAmt === q.credit.amount);
+
+  const resultBox = document.getElementById("resultBox");
+  const resultText = document.getElementById("resultText");
+  const explanationText = document.getElementById("explanationText");
+
+  resultBox.style.display = "block";
+  document.getElementById("submitBtn").style.display = "none";
+
+  if (isCorrect) {
+    resultBox.className = "result correct";
+    resultText.textContent = "◎ 正解！ (Correct)";
+  } else {
+    resultBox.className = "result incorrect";
+    resultText.textContent = `× 不正解 (Incorrect) 【正解: (借) ${q.debit.account} ${q.debit.amount} / (貸) ${q.credit.account} ${q.credit.amount}】`;
+  }
+  
+  explanationText.textContent = q.explanation;
+}
+
+// 9. 次の問題へ
+function nextQuestion() {
+  currentIndex++;
+  if (currentIndex < activeQuiz.length) {
+    loadQuestion(currentIndex);
+  } else {
+    alert("全問が終了しました！お疲れ様でした。");
+    currentIndex = 0;
+    loadQuestion(currentIndex);
+  }
+}
+
+window.onload = initApp;
+</script>
+</body>
+</html>
